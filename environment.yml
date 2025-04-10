@@ -1,0 +1,24 @@
+name: datakit
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  - pip
+  - typer
+  - loguru
+  - tqdm
+  - black
+  - flake8
+  - isort
+  - pandas
+  - numpy 
+  - tifffile
+  - scikit-learn
+  - matplotlib
+  - ipython
+  - jupyterlab
+  - notebook
+  - pip:
+    - python-dotenv
+    - mkdocs
+    - -e .

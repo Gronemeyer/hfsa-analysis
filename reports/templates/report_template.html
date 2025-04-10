@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Subject Report - {{ subject }}</title>
+  <style>
+    body { font-family: sans-serif; margin: 2rem; }
+    h2 { margin-top: 2rem; }
+    img { width: 100%; max-width: 1000px; border: 1px solid #ccc; margin-bottom: 1rem; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 2rem; }
+    th, td { padding: 8px; border: 1px solid #ccc; text-align: left; }
+    pre { background: #f7f7f7; padding: 1rem; overflow-x: auto; }
+  </style>
+</head>
+<body>
+
+<h1>🧪 Session Report - Subject: {{ subject }}</h1>
+
+{% for entry in sessions %}
+  <h2>📅 Session: {{ entry.session }}</h2>
+
+  <h3>🧬 Summary Stats</h3>
+  {{ entry.stats_table | safe }}
+
+  <h3>📈 Calcium Trace Plot</h3>
+  <img src="{{ entry.plot_path }}">
+
+  {% if entry.notes %}
+  <h3>📝 Notes</h3>
+  <ul>
+    {% for note in entry.notes %}
+      <li><strong>{{ note.timestamp }}</strong>: {{ note.note }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+{% endfor %}
+
+<h2>📘 Analysis Provenance</h2>
+<pre>{{ provenance }}</pre>
+
+</body>
+</html>
