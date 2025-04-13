@@ -18,7 +18,9 @@ dependencies:
   - ipython
   - jupyterlab
   - notebook
+  - pytables # for pandas.HDFStore .hdf5 support
   - pip:
+    - bokeh
     - python-dotenv
     - mkdocs
     - -e .
