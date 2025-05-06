@@ -47,16 +47,17 @@ data/
 SUBJECT_REGEX = re.compile(r"sub-([A-Za-z0-9]+)")
 SESSION_REGEX = re.compile(r"ses-([A-Za-z0-9]+)")
 
-GLOB_PATTERNS: Dict[str, Tuple[str, ...]] = {
-    "meso.ome.tiff": ("raw", "meso_tiff"),
-    "meso.ome.tiff_frame_metadata.json": ("raw", "meso_metadata"),
-    "pupil.ome.tiff": ("raw", "pupil_tiff"),
-    "pupil.ome.tiff_frame_metadata.json": ("raw", "pupil_metadata"),
-    "treadmill_data.csv": ("raw", "encoder",),
-    "*.psydat": ("raw", "psydat",),
-    "configuration.csv": ("raw", "session_config",),
-    "full.pickle": ("processed", "dlc_pupil"),
-    "meso-mean-trace.csv": ("processed", "meso_trace"),
+GLOB_PATTERNS: Dict[str, str] = {
+    "meso.ome.tiff": "meso_tiff",
+    "meso.ome.tiff_frame_metadata.json": "meso_metadata",
+    "pupil.ome.tiff": "pupil_tiff",
+    "pupil.ome.tiff_frame_metadata.json": "pupil_metadata",
+    "treadmill_data.csv": "encoder",
+    "*.psydat": "psydat",
+    "configuration.csv": "session_config",
+    "full.pickle": "dlc_pupil",
+    "meso-mean-trace.csv": "meso_mean",
+    "notes.txt": "notes",
 }
 
 # If tqdm is installed, configure loguru with tqdm.write

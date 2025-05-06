@@ -152,17 +152,6 @@ class ExperimentData:
         filepath = self.data.loc[(subject, session), data_type]
         return tifffile.memmap(filepath)
 
-    # def generate_data_structure(self):
-    #     steps = [
-    #         ("meso_metadata", lambda col: col.apply(camera_metadata)),
-    #         ("pupil_metadata", lambda col: col.apply(camera_metadata)),
-    #         ("encoder", lambda col: col.apply(pd.read_csv)),
-    #         ("meso_mean", lambda col: parallelize_series(col, compute_mean_trace)),
-    #     ]
-
-    #     for key, func in tqdm(steps, desc="Processing data steps", total=len(steps)):
-    #         self.data[key] = func(self.data[key])
-
     def register_series(self, name, file_series, loader_func=pd.read_csv, structured=False):
         """
         Register a file Series with a custom loader function.
@@ -358,13 +347,30 @@ class ExperimentData:
 
     @staticmethod
     def _process_dataframe(df, data_type):
+        """
+        Flatten a small DataFrame of arrays into one row, adding each column
+        under (data_type, column_name).  If the column holds array‐like cells,
+        we store them as a list of arrays; otherwise we decide between a scalar
+        (if constant) or a numpy array.
+        """
         row_data = {}
         for col in df.columns:
             series = df[col]
-            if series.nunique(dropna=False) == 1:
-                row_data[(data_type, col)] = series.iloc[0] # Constant column → store scalar
+            # detect array‐like cells
+            is_array_col = series.map(lambda x: isinstance(x, (np.ndarray, list))).any()
+            if is_array_col:
+                # store the list of per‐frame arrays
+                row_data[(data_type, col)] = series.to_list()
             else:
-                row_data[(data_type, col)] = series.to_numpy() # Variable column → store as array
+                # fall back to scalar vs array
+                try:
+                    nuniq = series.nunique(dropna=False)
+                except TypeError:
+                    nuniq = None
+                if nuniq == 1:
+                    row_data[(data_type, col)] = series.iloc[0]
+                else:
+                    row_data[(data_type, col)] = series.to_numpy()
         return row_data
 
     @staticmethod
@@ -378,19 +384,23 @@ class ExperimentData:
     def _load_file_series(self, file_series, data_type, loader, structured=False):
         rows = []
         for idx, filepath in file_series.items():
+            # Skip missing file paths
+            if pd.isna(filepath):
+                rows.append({})
+                continue
             df = loader(filepath)
-
-            if structured and isinstance(df, pd.DataFrame):
-                # Store the entire DataFrame in a single cell
-                row = {(data_type, 'dataframe'): df}
             
+            # Support dict return: convert dict to a single-row DataFrame
+            if isinstance(df, dict):
+                df = pd.DataFrame(df)
+            if structured and isinstance(df, pd.DataFrame):
+                # Store the entire raw output DataFrame in a single cell under 'raw_output'
+                row = {(data_type, 'raw_output'): df}         
             elif isinstance(df, pd.DataFrame):
                 # Default behavior: decompose into columns
-                row = self._process_dataframe(df, data_type)
-            
+                row = self._process_dataframe(df, data_type)           
             elif isinstance(df, (pd.Series, np.ndarray)):
                 row = {(data_type, 'values'): df}
-            
             else:
                 raise ValueError(f"Unsupported type: {type(df)} from {filepath}")
             
@@ -400,65 +410,112 @@ class ExperimentData:
         result.columns = pd.MultiIndex.from_tuples(result.columns, names=['Source', 'Feature'])
         return result
 
+    def _load_source(self, name, configs):
+        # Load and concatenate components for a single source
+        parts = []
+        for config in configs:
+            if config['type'] == 'file_series':
+                df = self._load_file_series(config['data'], name, config['loader'], config.get('structured', False))
+            elif config['type'] == 'dataframe':
+                df = self._standardize_dataframe(config['data'], name)
+            elif config['type'] == 'series':
+                df = self._series_to_dataframe(config['data'], name)
+            else:
+                raise ValueError(f"Unknown source type: {config['type']}")
+            parts.append(df)
+        combined = pd.concat(parts, axis=1)
+        self._log(f"Loaded source: {name}, shape: {combined.shape}")
+        return combined
+
+    def _apply_global_analyses(self, df):
+        # Run all global analysis steps, returning concatenated results
+        frames = []
+        for name, entry in self.analysis_steps.items():
+            self._log(f"Running global analysis: {name}")
+            res = df.pipe(entry['function'])
+            if isinstance(res, pd.Series):
+                res = res.to_frame().T
+            if not isinstance(res.columns, pd.MultiIndex):
+                res.columns = pd.MultiIndex.from_tuples(res.columns, names=['Source', 'Feature'])
+            frames.append(res)
+        return pd.concat(frames, axis=1) if frames else pd.DataFrame()
+
+    def _apply_per_source_analyses(self, final_df):
+        """
+        Helper to run all per-source analysis steps, ensuring that structured
+        DataFrame cells are passed individually so analysis fn gets a proper DataFrame.
+        """
+        frames = []
+        for source, analysis_list in self.per_source_analyses.items():
+            src_df = final_df[source]
+            # structured if single nested-DataFrame column
+            structured = src_df.shape[1] == 1 and isinstance(src_df.iloc[0, 0], pd.DataFrame)
+            if structured:
+                nested = src_df.iloc[:, 0]
+                for config in analysis_list:
+                    self._log(f"Running analysis: {config['name']} on structured source: {source}")
+                    # collect per-row results
+                    results = {}
+                    for idx, df_cell in nested.items():
+                        if not isinstance(df_cell, pd.DataFrame):
+                            continue
+                        sub_res = config['function'](df_cell)
+                        # ensure DataFrame
+                        if isinstance(sub_res, pd.Series):
+                            sub_res = sub_res.to_frame().T
+                        # flatten time-series output into arrays if needed
+                        if isinstance(sub_res, pd.DataFrame) and sub_res.shape[0] > 1:
+                            flat = {col: sub_res[col].to_numpy() for col in sub_res.columns}
+                            sub_res = pd.DataFrame([flat])
+                        # ensure MultiIndex columns
+                        if not isinstance(sub_res.columns, pd.MultiIndex):
+                            sub_res.columns = pd.MultiIndex.from_product(
+                                [[source], sub_res.columns],
+                                names=['Source','Feature']
+                            )
+                        results[idx] = sub_res.iloc[0]
+                    if results:
+                        df_res = pd.DataFrame.from_dict(results, orient='index')
+                        frames.append(df_res)
+                    
+            else:
+                for config in analysis_list:
+                    self._log(f"Running analysis: {config['name']} on source: {source}")
+                    res = config['function'](src_df)
+                    if isinstance(res, pd.Series):
+                        res = res.to_frame().T
+                    if not isinstance(res.columns, pd.MultiIndex):
+                        res.columns = pd.MultiIndex.from_tuples(res.columns, names=['Source','Feature'])
+                    frames.append(res)
+        if frames:
+            df_per_src = pd.concat(frames, axis=1)
+            # ensure index names match main DataFrame for join
+            df_per_src.index.names = final_df.index.names
+            return df_per_src
+        else:
+            return pd.DataFrame()
 
     def load_all(self):
-        all_sources_combined = []
+        # Load all sources into one DataFrame with a progress bar
+        dfs = []
+        for name, configs in tqdm(self.sources.items(), desc="Loading sources"):
+            dfs.append(self._load_source(name, configs))
+        final_df = pd.concat(dfs, axis=1)
 
-        for name, configs in self.sources.items():
-            parts = []
+        # Apply per-source then global analyses
+        result_df = final_df.copy()
 
-            for config in configs:
-                if config['type'] == 'file_series':
-                    df = self._load_file_series(
-                        config['data'],
-                        data_type=name,
-                        loader=config['loader'],
-                        structured=config.get('structured', False)
-                    )
-                elif config['type'] == 'dataframe':
-                    df = self._standardize_dataframe(config['data'], name)
-                elif config['type'] == 'series':
-                    df = self._series_to_dataframe(config['data'], name)
-                else:
-                    raise ValueError(f"Unknown source type: {config['type']}")
-                
-                parts.append(df)
+        per_src = self._apply_per_source_analyses(result_df)
+        if not per_src.empty:
+            result_df = result_df.join(per_src)
 
-            # Combine all components under this source
-            combined_source_df = pd.concat(parts, axis=1)
-            self._log(f"Loaded source: {name}, shape: {combined_source_df.shape}")
-            all_sources_combined.append(combined_source_df)
+        global_df = self._apply_global_analyses(result_df)
+        if not global_df.empty:
+            result_df = result_df.join(global_df)
 
-        # Validate and merge all sources
-        final_df = pd.concat(all_sources_combined, axis=1)
-        
-        # Run per-source analyses
-        for source, analysis_list in self.per_source_analyses.items():
-            # Extract sub-DataFrame for the source
-            source_df = final_df[source]
-            for config in analysis_list:
-                self._log(f"Running analysis: {config['name']} on source: {source}")
-                result = config['function'](source_df)
-
-                # Ensure MultiIndex columns
-                if not isinstance(result.columns, pd.MultiIndex):
-                    result.columns = pd.MultiIndex.from_tuples(result.columns, names=['Source', 'Feature'])
-
-                final_df = final_df.join(result)
-
-        # Run global analyses
-        for name, analysis_fn in self.analysis_steps.items():
-            self._log(f"Running global analysis: {name}")
-            result = analysis_fn(final_df)
-
-            if not isinstance(result.columns, pd.MultiIndex):
-                result.columns = pd.MultiIndex.from_tuples(result.columns, names=['Source', 'Feature'])
-
-            final_df = final_df.join(result)
-
-        self._log(f"Final combined shape after analysis: {final_df.shape}")
-        self.data = final_df
-        return final_df
+        self._log(f"Final combined shape after analysis: {result_df.shape}")
+        self.data = result_df
+        return result_df
 
     def to_hdf5(self, df, path, key="nested_data", compression="blosc"):
         """
@@ -526,44 +583,66 @@ class ExperimentData:
         self._log(f"✅ Analysis data from source '{source}' saved to {path}")
 
 
-# DATA_REGISTRY = {
-#     "meso_mean": {"loader": compute_mean_trace, "dtype": "np.ndarray"},
-#     "meso_tiff": {"loader": read_tiff_stack, "dtype": "np.memmap"},
-#     "pupil_tiff": compute_mean_trace,
-#     "encoder": pd.read_csv,
-#     "meso_metadata": camera_metadata,
-#     "pupil_metadata": camera_metadata,
-#     "dlc_pupil": pickle_to_df,
-#     "session_config": pd.read_csv,
-# }
 
             
-def process_dlc_pupil(self, max_files: Optional[int] = None) -> pd.DataFrame:
+def deeplabcut_pickle(filepath: str) -> pd.DataFrame:
     """
-    Returns a MultiIndex DataFrame of DeepLabCut pupil data, loading files incrementally
-    to manage memory usage.
+    Custom loader for DeepLabCut pickle output.
+
+    Reads a pickled dict where keys are frame identifiers and values are dicts
+    containing:
+      - 'coordinates': array-like of shape (n_landmarks, 2) for each frame
+      - 'confidence': array-like of length n_landmarks or single float per frame
+
+    This function:
+      1. Loads the pickle file.
+      2. Skips the first entry (assumed metadata).
+      3. Constructs a DataFrame indexed by frame keys (str).
+      4. Provides exactly two columns:
+         - 'coordinates': list/array of (x, y) coordinate pairs for that frame.
+         - 'confidence' : list/array of confidence values (or single float) for that frame.
+
+    Returned DataFrame shape: (F, 2)
+      where F = number of actual frames (total keys minus metadata entry).
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the pickled DeepLabCut output dict.
+
+    Returns
+    -------
+    pd.DataFrame
+        Index: frame identifiers (str), name='frame'
+        Columns:
+          - coordinates : object (array-like per row)
+          - confidence  : object (array-like or float per row)
     """
-    paths = self.data.loc[:, ("processed", "dlc_pupil")]
-    if max_files:
-        paths = paths.iloc[:max_files]
-    # Initialize with first file
-    if len(paths) == 0:
-        return pd.DataFrame()
-        
-    result = pd.DataFrame()
-    
-    # Process one file at a time
-    for idx, filepath in paths.items():
-        df = pickle_to_df(filepath)
-        # Add MultiIndex using current path keys
-        df_indexed = pd.DataFrame(df, index=pd.MultiIndex.from_tuples([idx]))
-        result = pd.concat([result, df_indexed])
-        # Force garbage collection after each file
-        del df
-        import gc
-        gc.collect()
-        
-    return result
+    data = pd.read_pickle(filepath)
+
+    # Build dictionaries for coordinates and confidence
+    coordinates_dict = {}
+    confidence_dict = {}
+    for frame_key, frame_data in data.items():
+        coordinates_dict[frame_key] = frame_data.get('coordinates')
+        confidence_dict[frame_key] = frame_data.get('confidence')
+
+    # Skip the first (metadata) entry by slicing off index 0
+    coords_series = pd.Series(coordinates_dict).iloc[1:]
+    conf_series  = pd.Series(confidence_dict).iloc[1:]
+
+    # Create the DataFrame
+    df = pd.DataFrame({
+        'coordinates': coords_series,
+        'confidence': conf_series,
+    })
+    df.index.name = 'frame'
+    # Drop any leftover metadata column
+    df = df.drop(columns=['metadata'], errors='ignore')
+
+    # Debug statement
+    # print(f"[load_deeplabcut_pickle][DEBUG] Loaded DeepLabCut pickle from: {filepath}")
+    return df
 
 def pickle_to_df(pickle_path) -> pd.DataFrame:
     """
@@ -571,10 +650,6 @@ def pickle_to_df(pickle_path) -> pd.DataFrame:
     """ 
     df = pd.DataFrame(pd.read_pickle(pickle_path))
     return df
-
-def pupil_means(pickle_path) -> pd.DataFrame:
-    from wrangling.transform import process_deeplabcut_pupil_data
-    process_deeplabcut_pupil_data(pickle_to_df(pickle_path))
     
 def camera_metadata(metadata_path) -> pd.DataFrame:
     # Handle case where metadata_path is not a valid path (e.g., NaN or float)
