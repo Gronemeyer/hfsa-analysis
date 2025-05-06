@@ -8,10 +8,40 @@ import inspect
 from collections import defaultdict
 from typing import Any, Dict, Tuple
 import multiprocessing as mp
+from pathlib import Path
 
-from datakit import np, pd, mp
 import tifffile
 
+from datakit import np, pd, mp
+from datakit.config import SUBJECT_REGEX, SESSION_REGEX, GLOB_PATTERNS
+
+class DatasetProxy:
+    def __init__(self, df):
+        self._df = df
+        self._base = ['columns']
+        if isinstance(df.columns, pd.MultiIndex):
+            lvl0 = df.columns.get_level_values(0)
+            self._allowed = self._base + list(dict.fromkeys(lvl0))
+        else:
+            self._allowed = self._base + list(df.columns)
+
+    @property
+    def df(self):
+        "🔓 raw pandas DataFrame if you really need it"
+        return self._df
+
+    def __getattr__(self, name):
+        # 1) expose your small set
+        if name in self._allowed:
+            sub = self._df[name]
+            return DatasetProxy(sub) if isinstance(sub, pd.DataFrame) else sub
+
+        # 2) fallback to pandas (hidden from dir())
+        return getattr(self._df, name)
+
+    def __dir__(self):
+        # only show your curated attrs
+        return self._allowed + ['df']
 
 def log_analysis(name, provenance_logger, source=None, description=None, parameters=None):
     """
