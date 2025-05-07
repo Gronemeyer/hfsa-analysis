@@ -23,7 +23,7 @@ from datakit.config import *
 
 
 class ExperimentData:
-    def __init__(self, source: str | Path, verbose=False, validate=True):
+    def __init__(self, source: str | Path, key: Optional[str], verbose=False, validate=True):
         """
         Initialize the loader. Encapsulates experimental data stored in a MultiIndex pandas DataFrame,
           providing intuitive dot notation for further processing and export.
@@ -69,7 +69,7 @@ class ExperimentData:
             # HDF5 file path - load structured data
             self.experiment_dir = source.parent
             self._dict = None
-            self.processed = self.from_hdf5(str(source), key='HFSA')  # Ensure string for compatibility
+            self.processed = self.from_hdf5(str(source), key=key)  # Ensure string for compatibility
             self.data = self.processed.copy()
             self._log(f"Initialized from HDF5 file: {source}")
         else:
