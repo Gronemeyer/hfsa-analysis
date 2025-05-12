@@ -16,7 +16,7 @@ from datakit.config import (
     PROCESSED_DATA_DIR,
 )
 import datakit.load as load
-from datakit.utils import DatasetProxy
+from datakit.utils import DatasetProxy, log_analysis
 
 app = typer.Typer()
 
@@ -32,7 +32,7 @@ class Source:
 def main(
     
     # ---- REPLACE DEFAULT PATHS AS APPROPRIATE ----
-    experimenter: str = typer.Argument(..., help="Name of the experimenter"),
+    #experimenter: str = typer.Argument(..., help="Name of the experimenter"),
 
     input_path: Path = RAW_DATA_DIR,
     output_path: Path = PROCESSED_DATA_DIR / f"{datetime.datetime.now().strftime('%y%m%d')}_dataset_JG.h5",
@@ -48,7 +48,7 @@ def main(
         Source("session_config", "series",    "session_config",  loader=load.read_session_config, structured=True),
         Source("meso_meta",      "series",    "meso_metadata",   loader=load.camera_metadata),
         Source("pupil_meta",     "series",    "pupil_metadata",  loader=load.camera_metadata),
-        Source("pupil",          "series",    "dlc_pupil",       loader=load.deeplabcut_pickle),
+        Source("pupil",          "series",    "dlc_pupil",       loader=load.deeplabcut_pickle, structured=True),
     ]
 
     logger.info("Registering dataset into memmory...")
@@ -63,12 +63,26 @@ def main(
         else:  # dataframe
             loader.register_dataframe(src.name, src.data)  
             
+    @log_analysis(
+        name="dlc_pupil_means",
+        provenance_logger=loader.provenance,
+        source="pupil",
+        description="Computes mean pupil size from DLC output",
+        parameters={"confidence_threshold": 0.7,
+                    "pixel_to_mm": 53.6}
+    )
+    def dlc_pupil_analysis(df_dlc_pupil):
+        from datakit.proc import analyze_pupil_data
+        df = analyze_pupil_data(df_dlc_pupil, confidence_threshold=0.7, pixel_to_mm=53.6)
+        return df
 
+    loader.register_analysis(name="dlc_pupil_means", source="pupil", function=dlc_pupil_analysis)
     # Load everything into one unified df
     
     full_df = loader.load_all()
 
     logger.success("Processing dataset complete.")
+    full_df.to_hdf(r'processed\250507_HFSA_data.h5', 'HFSA')
     logger.info("Loading IPython terminal...")
     
     # Capture the DataFrame info into a string
