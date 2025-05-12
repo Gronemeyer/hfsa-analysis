@@ -517,7 +517,7 @@ class ExperimentData:
         self.data = result_df
         return result_df
 
-    def to_hdf5(self, df, path, key="nested_data", compression="blosc"):
+    def save_hdf5(self, df, path, key="nested_data", compression="blosc"):
         """
         Export nested DataFrame to HDF5 format.
 
@@ -534,7 +534,7 @@ class ExperimentData:
             store.put(key, df, format='fixed')
             self._log(f"Saved nested DataFrame to HDF5 under key '{key}'")
             
-    def from_hdf5(self, path, key="nested_data"):
+    def load_hdf5(self, path, key="nested_data"):
         """
         Load nested DataFrame from HDF5 format.
 
