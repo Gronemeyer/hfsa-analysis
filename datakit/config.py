@@ -60,6 +60,56 @@ GLOB_PATTERNS: Dict[str, str] = {
     "notes.txt": "notes",
 }
 
+METRIC_MAP = {
+    'pupil_diameter': {
+        'series':   lambda ds, sbj, sess: ds.pupil.pupil_diameter_mm.loc[(sbj, sess)][21:],
+        'stats': {
+            'Mean Pupil Diameter (mm)': lambda s: s.mean(),
+            'Std Pupil Diameter (mm)':  lambda s: s.std()
+        },
+        'label':        'Pupil Diameter',
+        'unit':         'mm',
+        'color':        'blue',
+        'mean_col':     'Mean Pupil Diameter (mm)',
+        'std_col':      'Std Pupil Diameter (mm)'
+    },
+    'speed': {
+        'series':   lambda ds, sbj, sess: ds.encoder.speed.loc[(sbj, sess)][21:]/10,
+        'stats': {
+            'Mean Speed (cm/s)': lambda s: s.mean(),
+            'Std Speed (cm/s)':  lambda s: s.std()
+        },
+        'label':        'Speed',
+        'unit':         'cm/s',
+        'color':        'green',
+        'mean_col':     'Mean Speed (cm/s)',
+        'std_col':      'Std Speed (cm/s)'
+    },
+    'distance': {
+        'series':   lambda ds, sbj, sess: ds.encoder.distance.loc[(sbj, sess)][21:],
+        'stats': {
+            'Total Distance (cm)': lambda s: (s.max() - s.min()) / 10
+        },
+        'label':        'Total Distance',
+        'unit':         'cm',
+        'color':        'red',
+        'mean_col':     'Total Distance (cm)',
+        'std_col':      None          # no std for distance
+    },
+    'meso_fluorescence': {
+        'series':   lambda ds, sbj, sess: ds.meso.meso_tiff.loc[(sbj, sess)][21:],
+        'stats': {
+            'Mean Widefield Calcium Fluorescence': lambda s: s.mean(),
+            'Std Widefield Calcium Fluorescence':  lambda s: s.std()
+        },
+        'label':        'Widefield Calcium Fluorescence',
+        'unit':         'a.u.',
+        'color':        'purple',
+        'mean_col':     'Mean Widefield Calcium Fluorescence',
+        'std_col':      'Std Widefield Calcium Fluorescence'
+    }
+}
+
 # If tqdm is installed, configure loguru with tqdm.write
 # https://github.com/Delgan/loguru/issues/135
 try:
