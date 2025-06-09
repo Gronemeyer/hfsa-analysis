@@ -1,5 +1,5 @@
 # Data
-/data/
+datakit/data/
 /reports/figures/
 # Mac OS-specific storage files
 .DS_Store
