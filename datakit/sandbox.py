@@ -3,66 +3,118 @@
 from pathlib import Path
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 import bokeh
-
-#%%  LOAD DATA FROM THE H5 FILE
+#%%
+#  LOAD DATA FROM THE H5 FILE
 from datakit.config import (
     RAW_DATA_DIR,
     PROCESSED_DATA_DIR,
 )
-dataset =pd.read_hdf( r'C:\dev\hfsa-analysis\250506_HFSA_data.h5', key='HFSA')
-
+import os
+dataset =pd.read_hdf(r'/Users/jakegronemeyer/hfsa-analysis/data/processed/250506_HFSA_data.h5', key='HFSA')
+# path = os.environ.get('DATASET')
+# dataset = pd.read_hdf(path, key='HFSA')
 #%%
-dataset[('meso_meta', 'TimeReceivedByCore')] = dataset[('meso_meta', 'TimeReceivedByCore')].apply(
-    lambda arr: pd.to_datetime(arr)
-)
 
-dataset[('pupil_meta', 'TimeReceivedByCore')] = dataset[('pupil_meta', 'TimeReceivedByCore')].apply(
-    lambda arr: pd.to_datetime(arr)
-)
-'''
-Subject    Session
-STREHAB02  01         DatetimeIndex(['2025-03-24 16:57:24.456272', '...
-STREHAB03  01         DatetimeIndex(['2025-03-25 17:34:53.303604', '...
-'''
+def print_dataset_info(dataset):
+    """
+    Print basic information about the dataset.
+    """
+    print(f"Dataset shape: {dataset.shape}")
+    print(f"Columns: {dataset.columns.tolist()}")
+    print(f"Index: {dataset.index.names}")
+    print(f"Data types:\n{dataset.dtypes}")
+    
+def set_timestamps_to_datetime(dataset):
+    """
+    Convert timestamp columns to datetime format.
+    
+    ```python
+    Subject    Session
+    STREHAB02  '01'         DatetimeIndex(['2025-03-24 16:57:24.456272', '...
+    STREHAB03  '01'         DatetimeIndex(['2025-03-25 17:34:53.303604', '...
+    ```
 
-times = dataset[('meso_meta', 'TimeReceivedByCore')]
-dataset.time_index_meso = times.apply(
-    lambda ts: np.round((ts - ts[0]).total_seconds() * 1000.0, 3)
-)
-# convert each pandas.Index in time_index_pupil to a numpy array of floats
-dataset.time_index_meso = dataset.time_index_meso.apply(
-    lambda idx: np.asarray(idx, dtype=float)
-)
-
-# Compute elapsed time in ms from the first pupil timestamp in each session, skipping the NaT entr
-times = dataset[('pupil_meta', 'TimeReceivedByCore')]
-
-# Necessary for this dataset due to mistaken NaT entry in a single session's metadata.
-def compute_time_index(ts):
-    # If ts is not indexable or empty, return empty array
-    if not hasattr(ts, '__getitem__') or len(ts) == 0:
-        return np.array([])
-    # If the first timestamp is NaT, drop all NaT and re-test
-    if pd.isnull(ts[0]):
-        ts = ts[~pd.isnull(ts)]
-        if len(ts) == 0:
+    """
+    dataset[('meso_meta', 'TimeReceivedByCore')] = pd.to_datetime(
+        dataset[('meso_meta', 'TimeReceivedByCore')]
+    )
+    dataset[('pupil_meta', 'TimeReceivedByCore')] = pd.to_datetime(
+        dataset[('pupil_meta', 'TimeReceivedByCore')]
+    )
+    
+def make_time_attributes(dataset):
+    """
+    Create time index attributes for meso and pupil data.
+    
+    ```python
+    Subject    Session
+    STREHAB02  '01'         Index([ 0.0, 19.897, 39.986, ...
+    STREHAB03  '01'         Index([ 0.0, 19.943, 39.922, ...
+    ```
+    
+    """
+    # Convert TimeReceivedByCore to datetime if not already done
+    #set_timestamps_to_datetime(dataset)
+    
+    # Necessary for this dataset due to mistaken NaT entry in a single session's metadata.
+    def compute_time_index(ts):
+        # If ts is not indexable or empty, return empty array
+        if not hasattr(ts, '__getitem__') or len(ts) == 0:
             return np.array([])
-    # Compute elapsed ms
-    return np.round((ts - ts[0]).total_seconds() * 1000.0, 3)
+        # If the first timestamp is NaT, drop all NaT and re-test
+        if pd.isnull(ts[0]):
+            ts = ts[~pd.isnull(ts)]
+            if len(ts) == 0:
+                return np.array([])
+        # Compute elapsed ms
+        return np.round((ts - ts[0]).total_seconds() * 1000.0, 3)
+    
+    # Compute elapsed time in milliseconds from the first timestamp in each session
+    times = dataset[('meso_meta', 'TimeReceivedByCore')]
+    dataset.time_index_meso = times.apply(
+        lambda ts: np.round((ts - ts[0]).total_seconds() * 1000.0, 3)
+    )
+    
+    # Convert each pandas.Index in time_index_meso to a numpy array of floats
+    dataset.time_index_meso = dataset.time_index_meso.apply(
+        lambda idx: np.asarray(idx, dtype=float)
+    )
+    
+    # Compute elapsed time in ms from the first pupil timestamp in each session, skipping the NaT entr
+    times = dataset[('pupil_meta', 'TimeReceivedByCore')]
 
-dataset.time_index_pupil = times.apply(compute_time_index)
+    dataset.time_index_pupil = times.apply(compute_time_index)
 
-# convert each pandas.Index in time_index_pupil to a numpy array of floats
-dataset.time_index_pupil = dataset.time_index_pupil.apply(
-    lambda idx: np.asarray(idx, dtype=float)
-)
+    # convert each pandas.Index in time_index_pupil to a numpy array of floats
+    dataset.time_index_pupil = dataset.time_index_pupil.apply(
+        lambda idx: np.asarray(idx, dtype=float)
+    )
+
+# dataset[('meso_meta', 'TimeReceivedByCore')] = dataset[('meso_meta', 'TimeReceivedByCore')].apply(
+#     lambda arr: pd.to_datetime(arr)
+# )
+
+# dataset[('pupil_meta', 'TimeReceivedByCore')] = dataset[('pupil_meta', 'TimeReceivedByCore')].apply(
+#     lambda arr: pd.to_datetime(arr)
+# )
+
+
+# times = dataset[('meso_meta', 'TimeReceivedByCore')]
+# dataset.time_index_meso = times.apply(
+#     lambda ts: np.round((ts - ts[0]).total_seconds() * 1000.0, 3)
+# )
+# # convert each pandas.Index in time_index_pupil to a numpy array of floats
+# dataset.time_index_meso = dataset.time_index_meso.apply(
+#     lambda idx: np.asarray(idx, dtype=float)
+# )
+
+make_time_attributes(dataset)
+#%% 
 '''
 # Compute elapsed time in milliseconds from the first timestamp in each session
 
-Subject    Session
-STREHAB02  01         Index([        0.0,      19.897,      39.986, ...
-STREHAB03  01         Index([        0.0,      19.943,      39.922, ...
 
 '''
 
@@ -101,6 +153,9 @@ p.line(x=time_sec[1:],
 show(p)
 
 #%% WRAP-AROUND DETECTION AND CLEANING FOR TEENSY TIMESTAMPS
+
+# [FUNCTION] Unwrap Teensy micros() timestamps to fix wrap-around artifacts ---
+
 def unwrap_teensy_timestamps(timestamps_us, rollover_val=2**32):
     """
     Fixes wrap-around artifacts in Teensy micros() data by detecting overflows
@@ -129,7 +184,7 @@ def unwrap_teensy_timestamps(timestamps_us, rollover_val=2**32):
 
 #%% PIPELINE V3
 
-# --- PIPELINE V3: Standardized Encoder Cleaning & Interpolation ---
+# [FUNCTIONS] PIPELINE V3: Standardized Encoder Cleaning & Interpolation ---
 
 def clean_encoder_trace(row, micros_per_sec=1e6):
     """
@@ -190,35 +245,9 @@ def interpolate_speed_to_runner_time(row):
     return pd.Series({('Analysis', 'interp_encoder_speed'): interp_speed})
 
 
-# --- apply transformations ---
+#%% VALIDATE CLEANED ENCODER SPEED AND DISTANCE WITH MATPLOTLIB VISUALIZATION
 
-# 1. Clean encoder traces
-encoder_clean = dataset.apply(clean_encoder_trace, axis=1)
-
-# 2. Merge cleaned output
-data = dataset.copy(deep=True).join(encoder_clean)
-
-# 3. Interpolate speed
-interp_speed_df = data.apply(interpolate_speed_to_runner_time, axis=1)
-data = data.join(interp_speed_df)
-
-# 4. Validation
-if ('Analysis', 'interp_encoder_speed') in data.columns:
-    sample = data[('Analysis', 'interp_encoder_speed')].iloc[0]
-    runner_time = data.iloc[0][('meso_meta', 'TimeReceivedByCore')]
-    expected_length = len(runner_time) if hasattr(runner_time, '__len__') else 1
-    interp_length = len(sample) if hasattr(sample, '__len__') else 1
-    print("Interpolation column exists.")
-    print("Expected length:", expected_length)
-    print("Interpolated speed length:", interp_length)
-    print("Validation passed: Interpolated speed column is correct.")
-else:
-    print("Validation failed: Interpolated speed column is missing.")
-
-# %% VALIDATE CLEANED ENCODER SPEED AND DISTANCE WITH MATPLOTLIB VISUALIZATION
-
-# ----- Visualization of Cleaned Encoder Speed and Distance for Inspection -----
-import matplotlib.pyplot as plt
+# [FUNCTIONS] Visualization of Cleaned Encoder Speed and Distance for Inspection -----
 
 def plot_encoder_speed_and_distance(data, subject, session):
     """
@@ -269,17 +298,17 @@ def plot_encoder_speed_and_distance(data, subject, session):
     plt.tight_layout()
     plt.show()
 
-# Get all unique (Subject, Session) pairs
-session_tuples = data.index.unique()
+# # Get all unique (Subject, Session) pairs
+# session_tuples = dataset.index.unique()
 
-# Loop and plot for each
-for subject, session in session_tuples:
-    plot_encoder_speed_and_distance(data, subject, session)
+# # Loop and plot for each
+# for subject, session in session_tuples:
+#     plot_encoder_speed_and_distance(dataset, subject, session)
 
 
 # %% LOCOMOTION STATISTICS
 
-# ----- Detect Locomotion Bouts from Encoder Speed -----
+# [FUNCTIONS] Detect Locomotion Bouts from Encoder Speed -----
 
 def detect_locomotion_bouts(ts, speed, distance, 
                             speed_thresh=2, 
@@ -366,14 +395,14 @@ def compute_locomotion_per_session(row):
     })
 
 
-locomotion_stats = data.apply(compute_locomotion_per_session, axis=1)
-# drop overlapping locomotion stats columns so they get overwritten
-data = data.drop(columns=locomotion_stats.columns, errors='ignore')
-data = data.join(locomotion_stats)
+# locomotion_stats = dataset.apply(compute_locomotion_per_session, axis=1)
+# # drop overlapping locomotion stats columns so they get overwritten
+# dataset = dataset.drop(columns=locomotion_stats.columns, errors='ignore')
+# dataset = dataset.join(locomotion_stats)
 
 #%% CALCULATE LOCOMOTION STATISTICS LONGFORM
 
-# ----- Convert session-level locomotion bout lists into a long-form DataFrame -----
+# [FUNCTION] Convert session-level locomotion bout lists into a long-form DataFrame -----
 
 def get_locomotion_bouts_longform(data):
     """
@@ -404,139 +433,158 @@ def get_locomotion_bouts_longform(data):
     df_bouts = pd.DataFrame.from_records(records)
     return df_bouts
 
-data.bouts = get_locomotion_bouts_longform(data)
-
-import seaborn as sns
-import matplotlib.pyplot as plt
-
-plt.figure(figsize=(8, 5))
-sns.histplot(data.bouts, x='duration', hue='is_micro', bins=30, kde=True)
-plt.xlabel('Bout Duration (s)')
-plt.title('Distribution of Locomotion Bout Durations')
-plt.show()
+#dataset.bouts = get_locomotion_bouts_longform(dataset)
 
 
 #%% CORRELATE LOCOMOTION WITH MESO SIGNAL
 
-# ----- Correlate Interpolated Locomotion with Meso Signal -----
-def correlate_locomotion_with_meso(data, speed_thresh=5):
+# [FUNCTION] Correlate Interpolated Locomotion with Meso Signal -----
+def correlate_locomotion_with_meso(data, speed_thresh=5, bin_size_s=5):
     """
-    Computes correlation between interpolated locomotion and meso_tiff signal per session.
-    Returns a DataFrame with correlation stats per (Subject, Session).
+    Bins meso fluorescence and locomotion into consecutive `bin_size_s`-second windows,
+    then computes the correlation between binned mean meso signal and binned
+    locomotion occupancy (fraction of time moving) per session.
+    Returns a DataFrame indexed by (Subject, Session).
     """
-    records = []
 
+    records = []
     for (subject, session), row in data.iterrows():
         try:
-            # Extract meso signal
-            runner_time = dataset.time_index_meso[subject, session]
-            meso_signal = row[('meso', 'meso_tiff')]
+            # timebase in seconds
+            runner_time_ms = data.time_index_meso[(subject, session)]
+            runner_time_s  = np.asarray(runner_time_ms, dtype=float) / 1000.0
 
-            # Encoder
-            ts = row[('Processed', 'encoder_timestamp')] / 1000.0  # µs → ms
-            speed = row[('Processed', 'encoder_speed')]
+            # continuous meso signal
+            meso_signal = np.asarray(row[('meso', 'meso_tiff')])
 
-            # Interpolate locomotion to runner_time_ms timebase
+            # encoder timestamps and speed in seconds
+            ts_us = np.asarray(row[('Processed', 'encoder_timestamp')])
+            speed = np.asarray(row[('Processed', 'encoder_speed')])
+            ts_s = ts_us.astype(float) / 1e6
+
+            # binary locomotion trace interpolated onto meso timebase
             locomotion_binary = (speed > speed_thresh).astype(int)
-            locomotion_interp = np.interp(runner_time, ts, locomotion_binary)
+            locomotion_interp = np.interp(runner_time_s, ts_s, locomotion_binary, left=0, right=0)
 
-            # Correlation
-            corr = np.corrcoef(locomotion_interp, meso_signal)[0, 1]
+            # define bin edges and assign each timepoint to a bin
+            max_t = runner_time_s.max()
+            edges = np.arange(0, max_t + bin_size_s, bin_size_s)
+            bin_idx = np.digitize(runner_time_s, edges) - 1
+
+            # compute per‐bin statistics
+            n_bins = len(edges) - 1
+            meso_means = np.zeros(n_bins, dtype=float)
+            loco_frac  = np.zeros(n_bins, dtype=float)
+
+            for b in range(n_bins):
+                mask = bin_idx == b
+                if not mask.any():
+                    meso_means[b] = np.nan
+                    loco_frac[b]  = np.nan
+                else:
+                    meso_means[b] = meso_signal[mask].mean()
+                    loco_frac[b]  = locomotion_interp[mask].mean() * 100.0
+
+            # drop bins with nan
+            valid = ~np.isnan(meso_means) & ~np.isnan(loco_frac)
+            corr = np.nan
+            if valid.sum() > 1:
+                corr = np.corrcoef(meso_means[valid], loco_frac[valid])[0, 1]
 
             records.append({
                 'Subject': subject,
                 'Session': session,
                 'Correlation_Locomotion_Meso': corr,
-                'MeanMeso': np.mean(meso_signal),
-                'StdMeso': np.std(meso_signal),
-                'PercentMoving': np.mean(locomotion_interp) * 100
+                'MeanMeso_perBin': np.nanmean(meso_means),
+                'StdMeso_perBin': np.nanstd(meso_means),
+                'PercentMoving_perBin': np.nanmean(loco_frac)
             })
-
-        except Exception as e:
-            print(f"[WARN] Skipping ({subject}, {session}): {e}")
+        except Exception:
             continue
 
-    df_corr = pd.DataFrame.from_records(records)
-    df_corr.set_index(['Subject', 'Session'], inplace=True)
-    
-    return df_corr
+    df = pd.DataFrame.from_records(records)
+    df.set_index(['Subject', 'Session'], inplace=True)
+    return df
 
-df_corr = correlate_locomotion_with_meso(data)
-# Join correlation results back into MultiIndexed structure
-data.update(df_corr)  # if the index matches exactly
+# df_corr = correlate_locomotion_with_meso(dataset)
+# # Join correlation results back into MultiIndexed structure
+# dataset.update(df_corr)  # if the index matches exactly
 
 
 # %% PLOT SESSION WITH LOCOMOTION BOUTS
 
-# ----- Plotting a single session with locomotion bouts highlighted -----
+# [FUNCTION] Plotting a single session with locomotion bouts highlighted -----
+from bokeh.io import export_svgs
 from bokeh.plotting import figure, show
 from bokeh.models import ColumnDataSource, BoxAnnotation
 from bokeh.layouts import column
 import numpy as np
 
-def plot_session_with_locomotion_bouts(data, subject, session, speed_thresh=5):
+def plot_session_with_locomotion_bouts(
+    data, subject, session, speed_thresh=5, output_svg: str = None
+):
+    """
+    Plots mean fluorescence with locomotion bouts.
+    If output_svg is a filepath, exports the figure as SVG instead of showing it.
+    """
     row = data.loc[(subject, session)]
-    
-    # Extract meso data
-    meso = row[('meso', 'meso_tiff')]
-    # Convert datetime array to elapsed time in seconds
+    meso = np.asarray(row[('meso', 'meso_tiff')])
     times = row[('meso_meta', 'TimeReceivedByCore')]
     runner_time = (times - times[0]).total_seconds()
 
-    # Encoder: locomotion
-    ts = row[('Processed', 'encoder_timestamp')] / 1000  # µs → sec
-    speed = row[('Processed', 'encoder_speed')]
+    ts = row[('Processed', 'encoder_timestamp')] / 1000  # µs → s
+    speed = np.asarray(row[('Processed', 'encoder_speed')])
     locomotion_binary = (speed > speed_thresh).astype(int)
     locomotion_interp = np.interp(runner_time, ts, locomotion_binary)
 
-    # Build source
-    source = ColumnDataSource(data={
+    source = ColumnDataSource({
         'time': runner_time[1:],
         'meso': meso[1:],
         'locomotion': locomotion_interp[1:]
     })
 
-    # Initialize plot with y-axis scaled from 6000 to 10000
-    p = figure(title=f"Mean Cortical Astrocyte Calcium Fluorescence | {subject} Day: {session}",
-               x_axis_label="Time (s)", y_range=(6000, 10000), 
-               height=350, 
-               width=900,
-               tools="pan,wheel_zoom,box_zoom,reset")
+    p = figure(
+        title=f"Fluorescence & Locomotion | {subject} Session {session}",
+        x_axis_label="Time (s)",
+        y_range=(6000, 10000),
+        width=900, height=350,
+        tools="pan,wheel_zoom,box_zoom,reset"
+    )
+    p.line('time', 'meso', source=source, color="green", legend_label="Ca²⁺ Signal")
 
-    p.line('time', 'meso', 
-           source=source, 
-           color="green", 
-           legend_label="Calcium Signal",)
-    # p.line('time', 'locomotion', 
-    #        source=source, 
-    #        color="green", 
-    #        alpha=0.4, 
-    #        legend_label="Locomotion")
-
-    # Add locomotion bouts as shaded spans
-    bouts = row.get(('Analysis', 'LocomotionBouts'), [])
-    for bout in bouts:
-        if not bout['is_micro']:  # skip micro movements for now
-            span = BoxAnnotation(left=bout['start_time'], right=bout['end_time'],
-                                 fill_alpha=0.1, fill_color='green')
+    for bout in row.get(('Analysis', 'LocomotionBouts'), []):
+        if not bout['is_micro']:
+            span = BoxAnnotation(
+                left=bout['start_time'],
+                right=bout['end_time'],
+                fill_alpha=0.1,
+                fill_color='green'
+            )
             p.add_layout(span)
 
     p.legend.location = "top_left"
-    p.legend.background_fill_color = "gray"
-    p.legend.background_fill_alpha = 0.8
-    p.legend.label_text_color = "black"
     p.toolbar.autohide = True
 
-    show(p)
-    
-# for subject, session in session_tuples:
-#     plot_session_with_locomotion_bouts(data, subject, session)
+    if output_svg:
+        # enable SVG backend and export
+        p.output_backend = "svg"
+        export_svgs(p, filename=output_svg)
+    else:
+        show(p)
 
-plot_session_with_locomotion_bouts(data, "STREHAB02", "02")
+
+# Example usage:
+# To display in notebook:
+# plot_session_with_locomotion_bouts(dataset, "STREHAB02", "02")
+
+# # To save as SVG:
+# plot_session_with_locomotion_bouts(
+#     dataset, "STREHAB02", "02", output_svg="session_STREHAB02_02_plot.svg"
+# )
 
 # %% PRODUCE SUMMARY STATISTICS
 
-# ----- Summarize session data into a DataFrame with key metrics -----
+# [FUNCTION] Summarize session data into a DataFrame with key metrics -----
 
 
 def summarize_session(data):
@@ -612,180 +660,10 @@ def summarize_session(data):
     )
     return df_summary
 
-df_summary = summarize_session(data)
-# drop any existing Analysis summary columns to prevent overlap
-data = data.drop(columns=df_summary.columns, errors='ignore')
-data = data.join(df_summary)
-
-# %% CONSOLIDATE ALL SESSION PLOTS INTO A DASHBOARD WITH FLUORESCENCE, DISTANCE, AND STATS
-
-# ----- Bokeh Dashboard for All Sessions -----
-
-from bokeh.plotting import figure, save
-from bokeh.models import ColumnDataSource, BoxAnnotation, Div
-from bokeh.layouts import column, row
-from bokeh.io import output_file
-import numpy as np
-from bokeh.models import ColumnDataSource
-from bokeh.models.widgets import DataTable, TableColumn
-
-
-def make_session_figure(data, subject, session, speed_thresh=5):
-    """ Mean fluorescence + locomotion bouts shading. """
-    rowd = data.loc[(subject, session)]
-    meso = np.asarray(rowd[('meso', 'meso_tiff')])
-    times = rowd[('meso_meta', 'TimeReceivedByCore')]
-    runner_time = (times - times[0]).total_seconds() * 1000.0  # elapsed ms
-
-    ts = np.asarray(rowd[('Processed', 'encoder_timestamp')]) / 1000.0  # µs → s
-    speed = np.asarray(rowd[('Processed', 'encoder_speed')])
-    locomotion = np.interp(runner_time,
-                           ts,
-                           (speed > speed_thresh).astype(int))
-
-    src = ColumnDataSource({
-        't': runner_time[1:],
-        'meso': meso[1:],
-        'loc': locomotion[1:]
-    })
-
-    p = figure(
-        title=f"{subject} | Session {session}: Fluorescence",
-        x_axis_label='Time (s)',
-        y_axis_label='Fluorescence',
-        width=900, height=350,
-        tools="pan,wheel_zoom,box_zoom,reset"
-    )
-    p.line('t', 'meso', source=src, color='green', legend_label='Ca²⁺')
-    bouts = rowd.get(('Analysis', 'LocomotionBouts'), [])
-    for bout in bouts:
-        if not bout['is_micro']:
-            span = BoxAnnotation(
-                left=bout['start_time'],
-                right=bout['end_time'],
-                fill_alpha=0.1,
-                fill_color='green'
-            )
-            p.add_layout(span)
-
-    p.legend.location = 'top_left'
-    p.toolbar.autohide = True
-    return p
-
-def make_distance_figure(data, subject, session):
-    """ Total distance moved (forward/backward). """
-    rowd = data.loc[(subject, session)]
-    ts = np.asarray(rowd[('Processed', 'encoder_timestamp')]) / 1e6  # µs → s
-    dist = np.asarray(rowd[('Processed', 'encoder_distance')])
-
-    p = figure(
-        title=f"{subject} | Session {session}: Distance",
-        x_axis_label='Time (s)',
-        y_axis_label='Distance (mm)',
-        width=500, height=350,
-        tools="pan,wheel_zoom,box_zoom,reset"
-    )
-    p.line(ts, dist, line_color='navy')
-    p.toolbar.autohide = True
-    return p
-
-def make_stats_table(data, subject, session):
-    """A simple Bokeh DataTable with session summary stats from data.Analysis,
-    rounding all numeric values to 2 decimal places."""
-    # extract only the 'Analysis' columns for this (subject, session)
-    stats = data['Analysis'].loc[(subject, session)]
-    # build a small DataFrame for the table, formatting numbers to 2 decimals
-    df = pd.DataFrame({
-        "Stat": stats.index.astype(str),
-        "Value": [
-            f"{v:.2f}" if isinstance(v, (int, float, np.floating)) else v
-            for v in stats.values
-        ]
-    })
-    source = ColumnDataSource(df)
-    columns = [
-        TableColumn(field="Stat", title="Stat"),
-        TableColumn(field="Value", title="Value")
-    ]
-    table = DataTable(
-        source=source,
-        columns=columns,
-        fit_columns=True,
-        width=300,
-        height=250,
-        index_position=None
-    )
-    return table
-
-# build one row per session with 3 panels horizontally
-session_rows = []
-for subject, session in data.index:
-    f1 = make_session_figure(data, subject, session)
-    f2 = make_distance_figure(data, subject, session)
-    f3 = make_stats_table(data, subject, session)
-    session_rows.append(row(f1, f2, f3))
-
-# stack each session-row vertically into the dashboard
-dashboard = column(*session_rows)
-
-# write out a single HTML file
-output_file("all_sessions_dashboard.html", title="All Sessions Dashboard")
-save(dashboard)
-
-#%%
-from bokeh.io import output_notebook, show
-from bokeh.layouts import column, row
-from bokeh.models import Select
-
-output_notebook()
-
-# build session keys and default
-session_keys = [f"{subj}|{sess}" for subj, sess in data.index]
-selector = Select(title="Subject|Session", value=session_keys[0], options=session_keys)
-
-# initial figures
-subj0, sess0 = session_keys[0].split("|")
-fig1 = make_session_figure(data, subj0, sess0)
-fig2 = make_distance_figure(data, subj0, sess0)
-tab3 = make_stats_table(data, subj0, sess0)
-
-# container
-panels = row(fig1, fig2, tab3)
-dashboard = column(selector, panels)
-
-# callback to update on change
-def update_session(attr, old, new):
-    subj, sess = new.split("|")
-    new1 = make_session_figure(data, subj, sess)
-    new2 = make_distance_figure(data, subj, sess)
-    new3 = make_stats_table(data, subj, sess)
-    dashboard.children[1] = row(new1, new2, new3)
-
-selector.on_change('value', update_session)
-
-show(dashboard)
-
-dashboard.output_backend = "svg"
-
-from bokeh.io import export_svgs
-import svglib.svglib as svglib
-from reportlab.graphics import renderPDF
-import numpy as np
-
-# 1) export the dashboard to SVG
-export_svgs(dashboard, filename="all_sessions_dashboard.svg")
-
-# 2) register the font that Bokeh uses by default
-svglib.register_font('helvetica', '/Library/Fonts/Helvetica.ttf')
-
-# 3) read the SVG and render to PDF
-drawing = svglib.svg2rlg("all_sessions_dashboard.svg")
-renderPDF.drawToFile(drawing, "all_sessions_dashboard.pdf")
-
 
 #%%  PLOT ΔF/F₀ TRACE & KERNEL DENSITY ESTIMATE FOR STREHAB02 | 02
 
-# ----- PLOT ΔF/F₀ TRACE, KDE & EVENT QUANTIFICATION FOR STREHAB02 | 02 -----
+# [PLOTTER] ΔF/F₀ TRACE, KDE & EVENT QUANTIFICATION  -----
 
 import matplotlib.pyplot as plt
 from scipy.stats import gaussian_kde
@@ -803,135 +681,112 @@ def compute_dff_all_sessions(data, percentile=5):
     data[('Analysis', 'meso_dff')] = data[('meso', 'meso_tiff')].apply(_dff)
     return data
 
-# compute dF/F₀ for all sessions and update `data`
-data = compute_dff_all_sessions(data)
-
-
 #%% EVENT QUANTIFICATION FROM KERNEL DENSITY ESTIMATION
 
-#%% EVENT QUANTIFICATION FROM KERNEL DENSITY ESTIMATION
+# [FUNCTION] Detect ΔF/F₀ events using KDE and thresholding -----
+
 import seaborn as sns
+from scipy.signal import savgol_filter
+import numpy as np
+import pandas as pd
+from scipy.signal import savgol_filter
+from scipy.ndimage import binary_closing, label
 
-def detect_dff_events(data: pd.DataFrame,
-                      cutoff_pct: float = 90,
-                      max_gap: int = 500) -> pd.DataFrame:
-    """
-    For each (Subject, Session) in `data.index`, thresholds the
-    ΔF/F₀ trace stored in data[('Analysis','meso_dff')], fills short
-    dips below threshold, detects contiguous events, and appends:
-      - ('Analysis','DffEventList'): list of (start_idx, end_idx) per session
-      - ('Analysis','NumDffEvents'): number of events per session
-      - ('Analysis','DffEventDurations_s'): durations of each event in seconds
-    Uses data.time_index_meso[sess_key] (in ms) to compute real durations.
-    """
-    def fill_short_gaps(mask: np.ndarray, max_gap: int) -> np.ndarray:
-        arr = mask.astype(bool).copy()
-        inv = ~arr
-        d = np.diff(inv.astype(int), prepend=0, append=0)
-        starts = np.where(d == 1)[0]
-        ends   = np.where(d == -1)[0]
-        for s, e in zip(starts, ends):
-            if (e - s) <= max_gap:
-                arr[s:e] = True
-        return arr
+def detect_events_vec(
+    dff: np.ndarray,
+    t_ms: np.ndarray,
+    high_pct: float = 90,
+    low_pct: float | None = None,
+    window: int = 11,
+    poly: int = 3,
+    max_gap_ms: int = 1000,
+    min_dur_ms: int = 500,
+) -> list[tuple[int, int]]:
+    if low_pct is None:
+        low_pct = 0.75 * high_pct
+    # 1) smooth
+    smooth = savgol_filter(dff, window, poly)
+    # 2) thresholds
+    hi, lo = np.percentile(smooth, [high_pct, low_pct])
+    hi_mask = smooth >= hi
+    lo_mask = smooth >= lo
+    # 3) grow seeds via binary closing
+    seeds, _ = label(hi_mask)
+    grown = binary_closing(seeds.astype(bool), structure=np.ones(int(max_gap_ms)))
+    mask = grown & lo_mask
+    # 4) extract events
+    edges = np.diff(mask.astype(int), prepend=0, append=0)
+    starts = np.where(edges == 1)[0]
+    ends   = np.where(edges == -1)[0]
+    events = []
+    for s, e in zip(starts, ends):
+        if (t_ms[e - 1] - t_ms[s]) >= min_dur_ms:
+            events.append((s, e))
+    return events
 
-    event_lists = []
-    event_counts = []
-    event_durations = []
+def detect_dff_events(
+    data: pd.DataFrame,
+    cutoff_pct: float = 90,
+    hyst_lower_pct: float | None = None,
+    sg_window: int = 11,
+    sg_polyorder: int = 3,
+    max_gap: int = 500,
+    min_duration_ms: int = 500,
+) -> pd.DataFrame:
+    """
+    Uses detect_events_vec on each ΔF/F₀ trace in data.
+    Appends:
+      ('Analysis','DffEventList'),
+      ('Analysis','NumDffEvents'),
+      ('Analysis','DffEventDurations_s')
+    """
+    if hyst_lower_pct is None:
+        hyst_lower_pct = 0.75 * cutoff_pct
+
+    lists, counts, durations = [], [], []
 
     for sess_key in data.index:
-        f = np.asarray(data.loc[sess_key, ('Analysis', 'meso_dff')])
-        # session time index in ms
-        t_ms = np.asarray(data.time_index_meso[sess_key])
-        if f.size == 0 or t_ms.size < f.size + 1:
-            # no data or mismatch
-            event_lists.append([])
-            event_counts.append(0)
-            event_durations.append([])
+        dff_arr = np.asarray(data.loc[sess_key, ('Analysis', 'meso_dff')])
+        t_ms    = np.asarray(data.time_index_meso[sess_key])
+        if dff_arr.size == 0 or t_ms.size < dff_arr.size:
+            lists.append([])
+            counts.append(0)
+            durations.append([])
             continue
 
-        # align times: drop first element so times_ms[i] corresponds to f[i]
-        times_ms = t_ms
+        events = detect_events_vec(
+            dff=dff_arr,
+            t_ms=t_ms,
+            high_pct=cutoff_pct,
+            low_pct=hyst_lower_pct,
+            window=sg_window,
+            poly=sg_polyorder,
+            max_gap_ms=max_gap,
+            min_dur_ms=min_duration_ms
+        )
+        lists.append(events)
+        counts.append(len(events))
+        # convert to seconds
+        durs = [(t_ms[e-1] - t_ms[s]) / 1000.0 for s, e in events]
+        durations.append(durs)
 
-        thresh = np.percentile(f, cutoff_pct)
-        above = f > thresh
-        above_filled = fill_short_gaps(above, max_gap)
-
-        events = []
-        in_evt = False
-        for i, flag in enumerate(above_filled):
-            if flag and not in_evt:
-                start = i
-                in_evt = True
-            elif not flag and in_evt:
-                events.append((start, i))
-                in_evt = False
-        if in_evt:
-            events.append((start, len(f)))
-
-        # compute durations in seconds using the time index
-        durations_s = [
-            (times_ms[end] - times_ms[start]) / 1000.0
-            for start, end in events
-        ]
-
-        event_lists.append(events)
-        event_counts.append(len(events))
-        event_durations.append(durations_s)
-
-    data[('Analysis', 'DffEventList')]      = pd.Series(event_lists,      index=data.index)
-    data[('Analysis', 'NumDffEvents')]      = pd.Series(event_counts,     index=data.index)
-    data[('Analysis', 'DffEventDurations_s')] = pd.Series(event_durations, index=data.index)
+    data[('Analysis', 'DffEventList')]        = pd.Series(lists,     index=data.index)
+    data[('Analysis', 'NumDffEvents')]        = pd.Series(counts,    index=data.index)
+    data[('Analysis', 'DffEventDurations_s')] = pd.Series(durations, index=data.index)
     return data
 
-# run detection
-data = detect_dff_events(data, cutoff_pct=95, max_gap=100)
 
+#%% PLOT ΔF/F₀ TRACE, KDE & EVENT QUANTIFICATION
 
-#%% PLOT RESULTS
-
-import matplotlib.pyplot as plt
-
-# 1) Bar‐plot: number of ΔF/F₀ events per session
-df_evt = pd.DataFrame({
-    'Subject':   [idx[0] for idx in data.index],
-    'Session':   [idx[1] for idx in data.index],
-    'NumEvents': data[('Analysis','NumDffEvents')].values
-})
-df_evt['Subj|Sess'] = df_evt['Subject'] + '|' + df_evt['Session']
-
-plt.figure(figsize=(10,4))
-sns.barplot(data=df_evt, x='Subj|Sess', y='NumEvents', hue='Subject', dodge=False)
-plt.xticks(rotation=45, ha='right')
-plt.ylabel('Number of ΔF/F₀ Events')
-plt.title('ΔF/F₀ Event Counts per Session')
-plt.legend(title='Subject')
-plt.tight_layout()
-plt.show()
-
-
-# 2) Histogram of event durations (in frames)
-all_durs = []
-for idx in data.index:
-    for (s,e) in data.loc[idx, ('Analysis','DffEventList')]:
-        all_durs.append(e - s)
-
-plt.figure(figsize=(8,4))
-plt.hist(all_durs, bins=30, color='C1', edgecolor='k', alpha=0.7)
-plt.xlabel('Event Duration (frames)')
-plt.ylabel('Count')
-plt.title('Distribution of ΔF/F₀ Event Durations')
-plt.tight_layout()
-plt.show()
-
-#%%
-def plot_all_dff_sessions(data):
+# [PLOTTER] Loop plot all ΔF/F₀ sessions with detected events overlayed -----
+def plot_all_dff_sessions(data, sg_window=2, sg_polyorder=1):
     """
     Loop through every (Subject, Session) in `data` and plot its ΔF/F₀ trace
     with detected events overlaid.
     """
     for subject, session in data.index:
-        f = data.loc[(subject, session), ('Analysis', 'meso_dff')]
+        f_raw = data.loc[(subject, session), ('Analysis', 'meso_dff')]
+        f = savgol_filter(f_raw, sg_window, sg_polyorder)
         evts = data.loc[(subject, session), ('Analysis', 'DffEventList')]
         
         plt.figure(figsize=(10, 3))
@@ -945,12 +800,10 @@ def plot_all_dff_sessions(data):
         plt.tight_layout()
         plt.show()
 
-# Call the function to visualize all sessions
-plot_all_dff_sessions(data)
 
+#%% PLOT KDE
 
-#%% 
-# Plot KDE
+# [PLOTTER]] 
 plt.figure(figsize=(10, 5))
 plt.plot(x_grid, density, color='navy', lw=2)
 plt.axvline(threshold, color='red', linestyle='--',
@@ -983,7 +836,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # pull out the meso_tiff column
-meso = data[('meso','meso_tiff')]
+meso = dataset[('meso','meso_tiff')]
 
 # 1) compute 5th percentile in each (Subject,Session)
 p5 = meso.apply(lambda arr: np.percentile(arr, 5))
@@ -1002,24 +855,23 @@ plt.show()
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
 from pathlib import Path
-
-
+import seaborn as sns
 
 # Ensure fonts are embedded as outlines in the SVG
 rcParams['svg.fonttype'] = 'none'
 
 # Loop over all (Subject, Session) pairs
-for subject, session in data.index.unique():
+for subject, session in dataset.index.unique():
     # get time in seconds and fluorescence trace (skip the first frame)
-    runner_ms = np.asarray(data.loc[(subject, session), ('meso', 'runner_time_ms')])[1:]
+    runner_ms = np.asarray(dataset.loc[(subject, session), ('meso', 'runner_time_ms')])[1:]
     times_s = runner_ms / 1000.0
 
-    f = np.asarray(data.loc[(subject, session), ('meso', 'meso_tiff')])[1:]
+    f = np.asarray(dataset.loc[(subject, session), ('meso', 'meso_tiff')])[1:]
     f_base = np.percentile(f, 5)
     dff = (f - f_base) / f_base
 
     # get locomotion bouts
-    bouts = data.loc[(subject, session), ('Analysis', 'LocomotionBouts')]
+    bouts = dataset.loc[(subject, session), ('Analysis', 'LocomotionBouts')]
 
     # Plot
     fig, ax = plt.subplots(figsize=(10, 3))
@@ -1045,4 +897,236 @@ for subject, session in data.index.unique():
     filename = output_dir / f"dff_{subject}_{session}.svg"
     fig.savefig(filename, format='svg', bbox_inches='tight')
     plt.close(fig)
+    
+# %% Function Call Pipeline
+
+
+#%% CLEAN ENCODER TRACES AND INTERPOLATE SPEED
+# ------ Clean Encoder Traces and Interpolate Speed -----
+
+# 1. Clean encoder traces
+encoder_clean = dataset.apply(clean_encoder_trace, axis=1)
+
+# 2. Merge cleaned output
+data = dataset.copy(deep=True).join(encoder_clean)
+
+# 3. Interpolate speed
+interp_speed_df = data.apply(interpolate_speed_to_runner_time, axis=1)
+# merge into data (which already contains the cleaned columns) and then overwrite dataset
+data = data.join(interp_speed_df)
+dataset = data
+del(data)
+# 4. Validation
+if ('Analysis', 'interp_encoder_speed') in dataset.columns:
+    sample = dataset[('Analysis', 'interp_encoder_speed')].iloc[0]
+    runner_time = dataset.iloc[0][('meso_meta', 'TimeReceivedByCore')]
+    expected_length = len(runner_time) if hasattr(runner_time, '__len__') else 1
+    interp_length = len(sample) if hasattr(sample, '__len__') else 1
+    print("Interpolation column exists.")
+    print("Expected length:", expected_length)
+    print("Interpolated speed length:", interp_length)
+    print("Validation passed: Interpolated speed column is correct.")
+else:
+    print("Validation failed: Interpolated speed column is missing.")
+
+# ------- Plot encoder speed and distance for each session -------
+# Get all unique (Subject, Session) pairs
+session_tuples = dataset.index.unique()
+
+# Loop and plot for each
+for subject, session in session_tuples:
+    plot_encoder_speed_and_distance(dataset, subject, session)
+# ----------------------------------------------------------------
+
+#%% LOCOMOTION STATISTICS
+# ------------ Detect Locomotion Bouts from Encoder Speed ---------------
+locomotion_stats = dataset.apply(compute_locomotion_per_session, axis=1)
+# drop overlapping locomotion stats columns so they get overwritten
+dataset = dataset.drop(columns=locomotion_stats.columns, errors='ignore')
+dataset = dataset.join(locomotion_stats)
+
+dataset.bouts = get_locomotion_bouts_longform(dataset)
+
+#%% CORRELATE LOCOMOTION WITH MESO SIGNAL
+# ------------ Correlate Interpolated Locomotion with Meso Signal -------
+df_corr = correlate_locomotion_with_meso(dataset)
+# Join correlation results back into MultiIndexed structure
+dataset.update(df_corr)  # if the index matches exactly
+
+
+#%% PLOT SESSION WITH LOCOMOTION BOUTS
+# ------ Plotting a single session with locomotion bouts highlighted -----
+
+# To display in notebook:
+plot_session_with_locomotion_bouts(dataset, "STREHAB02", "02")
+
+# To save as SVG:
+# plot_session_with_locomotion_bouts(
+#     dataset, "STREHAB02", "02", output_svg="session_STREHAB02_02_plot.svg"
+# )
+# ------------------------------------------------------------------------
+
+# %% PRODUCE SUMMARY STATISTICS
+# ------ Summarize session data into a DataFrame with key metrics --------
+df_summary = summarize_session(dataset)
+# drop any existing Analysis summary columns to prevent overlap
+dataset = dataset.drop(columns=df_summary.columns, errors='ignore')
+dataset = dataset.join(df_summary)
+
+#%% 
+# Compute dF/F₀ for all sessions and update `data`
+dataset = compute_dff_all_sessions(dataset)
+
+# run detection
+dataset = detect_dff_events(dataset, 
+                            cutoff_pct=80, 
+                            max_gap=100,
+                            sg_window= 2,
+                            sg_polyorder= 1,
+                            hyst_lower_pct= 50,
+                            min_duration_ms= 5000
+                            )
+# Call the function to visualize all sessions
+plot_all_dff_sessions(dataset)
+
+
+#%% BOKEH DASHBOARD FOR ALL SESSIONS
+# build one row per session with 3 panels horizontally
+session_rows = []
+for subject, session in dataset.index:
+    f1 = make_session_figure(dataset, subject, session)
+    f2 = make_distance_figure(dataset, subject, session)
+    f3 = make_stats_table(dataset, subject, session)
+    session_rows.append(row(f1, f2, f3))
+
+# stack each session-row vertically into the dashboard
+dashboard = column(*session_rows)
+
+# write out a single HTML file
+output_file("all_sessions_dashboard.html", title="All Sessions Dashboard")
+save(dashboard)
+
+#%%
+
 # %%
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.widgets import Slider, Button
+from scipy.signal import savgol_filter
+
+def make_sample_data(duration_s=20, fs=100):
+    """Generate synthetic ΔF/F trace: drift + random Gaussian events + noise."""
+    t = np.linspace(0, duration_s * 1000, int(duration_s * fs))  # ms
+    drift = 0.001 * t + 0.1 * np.sin(2 * np.pi * t / 10000)
+    dff = drift.copy()
+    np.random.seed(0)
+    for center in np.random.uniform(0, t[-1], size=5):
+        width = np.random.uniform(200, 1000)
+        amp = np.random.uniform(0.2, 1.0)
+        dff += amp * np.exp(-0.5 * ((t - center) / width)**2)
+    dff += np.random.normal(scale=0.05, size=t.shape)
+    return t, dff
+
+def detect_events(dff, t_ms, cutoff_pct, hyst_lower_pct, sg_window, sg_polyorder, max_gap_ms, min_duration_ms):
+    """Simplified ΔF/F event detection."""
+    smooth = savgol_filter(dff, sg_window, sg_polyorder)
+    high_th = np.percentile(smooth, cutoff_pct)
+    low_th = np.percentile(smooth, hyst_lower_pct)
+    mask = np.zeros_like(smooth, bool)
+    in_evt = False
+    for i, val in enumerate(smooth):
+        if not in_evt and val >= high_th:
+            in_evt, start = True, i
+        elif in_evt and val <= low_th:
+            mask[start:i] = True
+            in_evt = False
+    if in_evt:
+        mask[start:] = True
+
+    # fill short gaps
+    dt = np.diff(t_ms, prepend=t_ms[0])
+    gap_frames = int(max_gap_ms // np.median(dt))
+    inv = ~mask
+    d = np.diff(inv.astype(int), prepend=0, append=0)
+    s_idx = np.where(d == 1)[0]
+    e_idx = np.where(d == -1)[0]
+    for s, e in zip(s_idx, e_idx):
+        if (e - s) <= gap_frames:
+            mask[s:e] = True
+
+    # extract events
+    edges = np.diff(mask.astype(int), prepend=0, append=0)
+    starts = np.where(edges == 1)[0]
+    ends = np.where(edges == -1)[0]
+    events = [(s, e) for s, e in zip(starts, ends) if (t_ms[e-1] - t_ms[s]) >= min_duration_ms]
+    return smooth, high_th, low_th, mask, events
+
+# Prepare data
+t_ms, dff = make_sample_data()
+
+# Initial parameters
+init = {'cutoff_pct': 90, 'hyst_ratio': 0.75, 'sg_window': 11, 'sg_poly': 3,
+        'max_gap': 500, 'min_dur': 500}
+
+# Set up figure and axes
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6))
+plt.subplots_adjust(left=0.1, bottom=0.4)
+
+# Initial detection & plots
+smooth, high_th, low_th, mask, _events = detect_events(
+    dff, t_ms, init['cutoff_pct'], init['cutoff_pct']*init['hyst_ratio'],
+    init['sg_window'], init['sg_poly'], init['max_gap'], init['min_dur']
+)
+_l_raw, = ax1.plot(t_ms, dff, label='Raw ΔF/F')
+l_smooth, = ax1.plot(t_ms, smooth, label='Smoothed')
+l_hi = ax1.hlines(high_th, t_ms[0], t_ms[-1], linestyles='--')
+l_lo = ax1.hlines(low_th, t_ms[0], t_ms[-1], linestyles='--')
+ax1.set_title('Raw vs Smoothed with Thresholds')
+ax1.set_ylabel('ΔF/F')
+ax1.legend()
+
+l_mask, = ax2.plot(t_ms, mask.astype(int), drawstyle='steps-post')
+ax2.set_title('Detected Event Mask')
+ax2.set_xlabel('Time (ms)')
+ax2.set_ylabel('Event (0/1)')
+
+# Slider axes
+axcolor = 'lightgoldenrodyellow'
+ax_cut = plt.axes((0.1, 0.30, 0.8, 0.03), facecolor=axcolor)
+ax_rat = plt.axes((0.1, 0.25, 0.8, 0.03), facecolor=axcolor)
+ax_win = plt.axes((0.1, 0.20, 0.8, 0.03), facecolor=axcolor)
+ax_poly = plt.axes((0.1, 0.15, 0.8, 0.03), facecolor=axcolor)
+ax_gap = plt.axes((0.1, 0.10, 0.8, 0.03), facecolor=axcolor)
+ax_dur = plt.axes((0.1, 0.05, 0.8, 0.03), facecolor=axcolor)
+
+s_cut = Slider(ax_cut, 'Cutoff %', 50, 99, valinit=init['cutoff_pct'], valstep=1)
+s_rat = Slider(ax_rat, 'Low % ratio', 0.3, 1.0, valinit=init['hyst_ratio'], valstep=0.05)
+s_win = Slider(ax_win, 'SG window', 5, 51, valinit=init['sg_window'], valstep=2)
+s_poly = Slider(ax_poly, 'SG polyord', 1, 7, valinit=init['sg_poly'], valstep=2)
+s_gap = Slider(ax_gap, 'Max gap (ms)', 0, 2000, valinit=init['max_gap'], valstep=100)
+s_dur = Slider(ax_dur, 'Min dur (ms)', 0, 2000, valinit=init['min_dur'], valstep=100)
+
+def update(_val):
+    cp = s_cut.val
+    hr = s_rat.val
+    sw = int(s_win.val)
+    sp = int(s_poly.val)
+    mg = s_gap.val
+    md = s_dur.val
+
+    smooth, hi, lo, mask, _events = detect_events(dff, t_ms, cp, cp*hr, sw, sp, mg, md)
+    l_smooth.set_ydata(smooth)
+    l_hi.set_ydata([hi, hi])
+    l_lo.set_ydata([lo, lo])
+    l_mask.set_ydata(mask.astype(int))
+    fig.canvas.draw_idle()
+
+for slider in [s_cut, s_rat, s_win, s_poly, s_gap, s_dur]:
+    slider.on_changed(update)
+
+reset_ax = plt.axes((0.8, 0.90, 0.1, 0.04))
+button = Button(reset_ax, 'Reset', color=axcolor, hovercolor='0.975')
+button.on_clicked(lambda _: [s_cut.reset(), s_rat.reset(), s_win.reset(),
+                                s_poly.reset(), s_gap.reset(), s_dur.reset()])
+
+plt.show()
